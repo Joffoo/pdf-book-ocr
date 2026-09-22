@@ -70,8 +70,8 @@ description: Convert PDF books (scanned or digital) to EPUB 3 and Obsidian Markd
    流水线自动执行三重汇编：
    - **接缝连续性审计与焊接 (`seam_auditor`)**：自动诊断相邻切片接口首尾对，执行跨切片引号闭环焊接（`MERGE` 对白）、未完结断句缝合（`MERGE`）与文本重叠剔除（`MERGE_DEDUP`），并生成 `seam_report.md`。
    - **逻辑章节聚合 (`chapter_assembler`)**：依接缝仲裁平滑拼接连续文本流，按正文真实 `## 章节标题` 动态切分章节，隔离各章脚注命名空间。
-   - **出版级编译 (`epub_builder`)**：Pandoc 编译 EPUB 3，注入双向弹框注释与排版样式。
-- **Gate 3 验收门禁**：确认生成 `seam_report.md`（无断句缝隙）、`toc_manifest.json` 与 `assembled_chapters/`（章节名 100% 对应原书大章，无碎片微短章）、全书主 Markdown 笔记与 `.epub` 文件。
+   - **出版级编译 (`epub_builder`)**：Pandoc 开启 `--mathml` 离线编译 EPUB 3，注入双向弹框注释、MathML 自适应排版样式与对话元数据。
+- **Gate 3 验收门禁**：确认生成 `seam_report.md`（无断句缝隙）、`toc_manifest.json` 与 `assembled_chapters/`（章节名 100% 对应原书大章，无碎片微短章）、全书主 Markdown 笔记与 `.epub` 文件；**校验 EPUB 3 内部公式已 100% 转译为语义化 MathML 标签且无残留裸 `$$` 源码**。
 
 ### Step 4: 出版级闭环验收
 交付给用户前，执行快速自检：

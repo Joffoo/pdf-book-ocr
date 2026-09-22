@@ -273,3 +273,32 @@ figcaption {
     color: #a0aec0;
   }
 }
+
+/* ===================================================
+   EPUB 3 MathML 数学公式优雅排版规范
+   =================================================== */
+math {
+  font-family: inherit;
+  font-size: 1.05em;
+  line-height: normal;
+}
+
+/* 独立居中公式块 (Display Math) */
+math[display="block"], .math-display {
+  display: block;
+  margin: 1.4em auto;
+  text-align: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.3em 0;
+  -webkit-overflow-scrolling: touch;
+  text-indent: 0 !important;
+}
+
+/* 行内微型公式 (Inline Math) */
+math[display="inline"], .math-inline {
+  display: inline-block;
+  vertical-align: -0.15em;
+  text-indent: 0 !important;
+}
+

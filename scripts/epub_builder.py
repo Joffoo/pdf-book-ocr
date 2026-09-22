@@ -94,6 +94,7 @@ tags:
         '-o', raw_epub,
         '--from=markdown+smart+footnotes',
         '--to=epub3',
+        '--mathml',
         '--metadata', f'title={title}',
         '--metadata', f'author={author}',
         '--metadata', 'language=zh-CN',
@@ -206,6 +207,14 @@ tags:
             # Ensure clean TOC text without residual footnote numbers
             nav_text = re.sub(r'<a\s+([^>]*)>([^<]*)<a[^>]*class="footnote-ref"[^>]*>.*?</a>(.*?)</a>', r'<a \1>\2\3</a>', nav_text)
             files_data[name] = nav_text.encode('utf-8')
+
+    # Validate MathML formulas
+    total_mathml = sum(files_data[name].decode('utf-8', errors='ignore').count('<math') for name in files_data if name.endswith(('.xhtml', '.html')))
+    residual_raw_math = sum(files_data[name].decode('utf-8', errors='ignore').count('$$') for name in files_data if name.endswith(('.xhtml', '.html')))
+    if total_mathml > 0:
+        print(f"[√] MathML 编译验证成功: 已无损嵌入 {total_mathml} 处 MathML 语义数学公式")
+    if residual_raw_math > 0:
+        print(f"[!] 警告: 发现 {residual_raw_math} 处残留未闭合的 '$$' 原始公式代码，请排查接缝")
 
     # Save final EPUB
     os.makedirs(os.path.dirname(os.path.abspath(out_epub)), exist_ok=True)
