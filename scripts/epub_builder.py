@@ -200,6 +200,14 @@ tags:
             text = re.sub(r'<aside\s+([^>]*epub:type="footnote"[^>]*)>', r'<aside \1 class="footnote-popup">', text)
             # Ensure footnote-ref has noteref class
             text = re.sub(r'<a\s+([^>]*epub:type="noteref"[^>]*)>', r'<a \1 class="noteref">', text)
+
+            # Publishing-grade styling for Epigraph & Poetry sections
+            if re.search(r'id="[^"]*题记[^"]*"', text) or re.search(r'<h1[^>]*>.*?题记.*?</h1>', text):
+                text = re.sub(r'(<section\s+[^>]*class="[^"]*)(")', r'\1 epigraph-section\2', text)
+                text = re.sub(r'<section(?!\s+[^>]*class=)([^>]*)>', r'<section class="epigraph-section"\1>', text)
+                text = re.sub(r'(<h1\s+class="[^"]*)(")', r'\1 epigraph-title" style="display:none;\2', text, count=1)
+                text = re.sub(r'<h1(?!\s+class=)([^>]*)>', r'<h1 class="epigraph-title" style="display:none;"\1>', text, count=1)
+                text = re.sub(r'<p(?!\s+class=)>', r'<p class="poem-stanza">', text)
             
             files_data[name] = text.encode('utf-8')
         elif name.endswith('nav.xhtml'):
@@ -215,6 +223,18 @@ tags:
         print(f"[√] MathML 编译验证成功: 已无损嵌入 {total_mathml} 处 MathML 语义数学公式")
     if residual_raw_math > 0:
         print(f"[!] 警告: 发现 {residual_raw_math} 处残留未闭合的 '$$' 原始公式代码，请排查接缝")
+
+    # Gate 3.5: Validate poetry / epigraph line breaks and image dimensions
+    for name, data in files_data.items():
+        if name.endswith(('.xhtml', '.html')) and not name.endswith('nav.xhtml'):
+            txt = data.decode('utf-8', errors='ignore')
+            if any(kw in txt for kw in ('题记', '序诗', '献词')):
+                p_tags = re.findall(r'<p[^>]*>(.*?)</p>', txt, flags=re.DOTALL)
+                for p_content in p_tags:
+                    clean_p = re.sub(r'<[^>]+>', '', p_content).strip()
+                    # If epigraph paragraph is multiline text without <br />, warn
+                    if len(clean_p) > 50 and '<br' not in p_content and ('\n' in p_content or len(re.findall(r'[\u4e00-\u9fa5]{4,}\s+[\u4e00-\u9fa5]{4,}', clean_p)) > 1):
+                        print(f"[!] 警告: 题记/诗歌页面 ({name}) 疑似存在未断行长段落: '{clean_p[:25]}...'")
 
     # Save final EPUB
     os.makedirs(os.path.dirname(os.path.abspath(out_epub)), exist_ok=True)

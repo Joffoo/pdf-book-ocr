@@ -21,9 +21,43 @@ import argparse
 
 sys.stdout.reconfigure(encoding='utf-8')
 
+def resolve_bbox_to_points(bbox, rect):
+    """
+    Resolves bbox [ymin, xmin, ymax, xmax] to PDF points (x0, y0, x1, y1).
+    Unified Contract:
+    - Standard (SSOT): 0~1000 normalized permille coordinates.
+    - Defensive adapter: If coordinates are in raw PDF point space (e.g. ymax <= rect.height, xmax <= rect.width)
+      and normalized scaling would improperly collapse the box into a tiny top sliver, automatically detects and preserves raw points.
+    """
+    ymin, xmin, ymax, xmax = [float(v) for v in bbox]
+
+    # If any coordinate exceeds page dimensions, it is definitively in 0~1000 normalized space
+    if ymax > rect.height or xmax > rect.width or ymin > rect.height or xmin > rect.width:
+        x0 = (xmin / 1000.0) * rect.width
+        y0 = (ymin / 1000.0) * rect.height
+        x1 = (xmax / 1000.0) * rect.width
+        y1 = (ymax / 1000.0) * rect.height
+        return x0, y0, x1, y1
+
+    # Defensive check: if coordinates are within [0..rect.height, 0..rect.width]
+    norm_w = ((xmax - xmin) / 1000.0) * rect.width
+    norm_h = ((ymax - ymin) / 1000.0) * rect.height
+    pt_w = xmax - xmin
+    pt_h = ymax - ymin
+
+    if (norm_w < 50 or norm_h < 50) and (pt_w >= 50 and pt_h >= 50):
+        print(f"[*] Auto-adapted raw PDF points bbox [{ymin:.0f}, {xmin:.0f}, {ymax:.0f}, {xmax:.0f}] to points")
+        return xmin, ymin, xmax, ymax
+
+    x0 = (xmin / 1000.0) * rect.width
+    y0 = (ymin / 1000.0) * rect.height
+    x1 = (xmax / 1000.0) * rect.width
+    y1 = (ymax / 1000.0) * rect.height
+    return x0, y0, x1, y1
+
 def crop_and_snap_figure(doc, page_no, bbox_norm, out_path):
     """
-    Crop figure from slice PDF page using normalized bbox [ymin, xmin, ymax, xmax] (0~1000).
+    Crop figure from slice PDF page using normalized bbox [ymin, xmin, ymax, xmax] (0~1000) or points.
     Performs 3-step edge-locking:
     1. Safety padding expansion (+15 points).
     2. High-res 300 DPI pixmap rendering.
@@ -38,13 +72,7 @@ def crop_and_snap_figure(doc, page_no, bbox_norm, out_path):
 
     page = doc[page_no]
     rect = page.rect
-    ymin, xmin, ymax, xmax = bbox_norm
-
-    # Convert 0-1000 normalized coords to PDF points
-    x0 = (xmin / 1000.0) * rect.width
-    y0 = (ymin / 1000.0) * rect.height
-    x1 = (xmax / 1000.0) * rect.width
-    y1 = (ymax / 1000.0) * rect.height
+    x0, y0, x1, y1 = resolve_bbox_to_points(bbox_norm, rect)
 
     # 1. Safety padding expansion
     pad = 15
@@ -75,6 +103,19 @@ def crop_and_snap_figure(doc, page_no, bbox_norm, out_path):
             top, bottom = int(valid_rows[0]), int(valid_rows[-1])
             left, right = int(valid_cols[0]), int(valid_cols[-1])
 
+            # 4. Rectangular border frame snapping (e.g. ancient woodblock, Tuibeitu, charts)
+            dense_rows = np.where((gray < 160).sum(axis=1) > int(pix.w * 0.25))[0]
+            dense_cols = np.where((gray < 160).sum(axis=0) > int(pix.h * 0.25))[0]
+            if len(dense_rows) >= 2 and len(dense_cols) >= 2:
+                frame_top, frame_bottom = int(dense_rows[0]), int(dense_rows[-1])
+                frame_left, frame_right = int(dense_cols[0]), int(dense_cols[-1])
+                # Ensure the frame constitutes a meaningful box
+                if (frame_bottom - frame_top) > int(pix.h * 0.25) and (frame_right - frame_left) > int(pix.w * 0.25):
+                    top = max(0, frame_top - 4)
+                    bottom = min(pix.h - 1, frame_bottom + 4)
+                    left = max(0, frame_left - 4)
+                    right = min(pix.w - 1, frame_right + 4)
+
             # Check for caption/text gutter cutoff in the bottom 40%
             total_h = bottom - top + 1
             if total_h > 80:
@@ -89,6 +130,12 @@ def crop_and_snap_figure(doc, page_no, bbox_norm, out_path):
                         bottom = check_start + s
                         break
 
+            # Text-only image sanity warning: check if image is purely horizontal text rows
+            cropped_h = bottom - top + 1
+            cropped_w = right - left + 1
+            if cropped_h < 120 and cropped_w > 500:
+                print(f"[!] Warning: Figure crop {out_path} has very low height ({cropped_h}px), verify it is not accidental text!")
+
             from PIL import Image
             img = Image.frombytes('RGB', [pix.w, pix.h], pix.samples)
             cropped_img = img.crop((left, top, right + 1, bottom + 1))
@@ -102,7 +149,7 @@ def crop_and_snap_figure(doc, page_no, bbox_norm, out_path):
     pix.save(out_path)
     return True
 
-def crop_figures_for_work_dir(work_dir):
+def crop_figures_for_work_dir(work_dir, force_recrop=False):
     """
     Scans raw_md/*.md for figure annotations:
     <!-- FIGURE: page=N bbox=[ymin, xmin, ymax, xmax] -->
@@ -157,7 +204,7 @@ def crop_figures_for_work_dir(work_dir):
                 page_no = 0
 
             target_img_path = os.path.join(work_dir, img_rel_path)
-            if not os.path.exists(target_img_path):
+            if force_recrop or not os.path.exists(target_img_path):
                 ok = crop_and_snap_figure(doc, page_no, (ymin, xmin, ymax, xmax), target_img_path)
                 if ok:
                     total_cropped += 1
@@ -234,6 +281,50 @@ def normalize_text_layout(text, is_drama=False):
     text = re.sub(r'\n{3,}', '\n\n', text).strip()
     return text
 
+def preserve_poetic_line_breaks(text, chapter_title=""):
+    """
+    Auto-detect and preserve poetic/epigraph line breaks with trailing backslashes `\\`.
+    Prevents CommonMark/Pandoc from collapsing intentional stanzas into a single run-on <p>.
+    """
+    is_poetic_chapter = any(kw in chapter_title for kw in ("题记", "序诗", "献词", "诗篇", "诗歌"))
+    blocks = re.split(r'\n\n+', text)
+    processed_blocks = []
+
+    for block in blocks:
+        lines = block.splitlines()
+        if len(lines) <= 1:
+            processed_blocks.append(block)
+            continue
+
+        first = lines[0].strip()
+        if first.startswith(('#', '>', '-', '*', '`', '|', '<!--', '![', '<')):
+            processed_blocks.append(block)
+            continue
+
+        non_empty = [l.strip() for l in lines if l.strip()]
+        if not non_empty:
+            processed_blocks.append(block)
+            continue
+
+        avg_len = sum(len(l) for l in non_empty) / len(non_empty)
+
+        # In a poetic chapter, any multiline regular text block is treated as poetry.
+        # In general text, if lines are short (< 35 chars) and lack terminal punctuation on intermediate lines
+        should_preserve = is_poetic_chapter or (avg_len < 35 and not any(l.endswith(('。', '！', '？', '；')) for l in non_empty[:-1]))
+
+        if should_preserve:
+            new_lines = []
+            for i, line in enumerate(lines):
+                s = line.rstrip()
+                if i < len(lines) - 1 and s and not s.endswith(('\\', '<br />', '<br/>', '  ')):
+                    s += '\\'
+                new_lines.append(s)
+            processed_blocks.append('\n'.join(new_lines))
+        else:
+            processed_blocks.append(block)
+
+    return '\n\n'.join(processed_blocks)
+
 def assemble_chapter(chapter_id, title, source_md_paths, out_path, is_drama=False):
     """Merge source markdown files and remap footnotes with chapter namespace."""
     combined_body = []
@@ -292,6 +383,7 @@ def assemble_chapter(chapter_id, title, source_md_paths, out_path, is_drama=Fals
     
     # Layout normalization
     full_text = normalize_text_layout(full_text, is_drama=is_drama)
+    full_text = preserve_poetic_line_breaks(full_text, chapter_title=title)
 
     # Append mapped footnote definitions
     if id_map:

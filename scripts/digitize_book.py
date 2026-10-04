@@ -97,11 +97,11 @@ def check_environment():
 def clean_book_filename(filename):
     """智能清洗书名与作者"""
     base = os.path.splitext(os.path.basename(filename))[0]
-    # 剔除常见的电子书网站噪音
+    # 剔除常见的电子书网站噪音（限定格式后缀与网盘标记，保护书名正文中的方括号）
     cleaned = re.sub(r'\(z-library[^\)]*\)', '', base, flags=re.I)
     cleaned = re.sub(r'\(1lib[^\)]*\)', '', cleaned, flags=re.I)
     cleaned = re.sub(r'\(z-lib[^\)]*\)', '', cleaned, flags=re.I)
-    cleaned = re.sub(r'\[.*?\]', '', cleaned)
+    cleaned = re.sub(r'\[(?:z-library|1lib|z-lib|epub|pdf|mobi|azw3|txt)\]', '', cleaned, flags=re.I)
     cleaned = cleaned.strip()
 
     # 尝试提取书名与作者：例如 "百年孤独 (加西亚·马尔克斯)"
@@ -375,7 +375,7 @@ def plan_book(doc, pdf_path, title, author, cover_path, out_dir, chunk_size, is_
 # 兼容别名
 plan_scanned_book = plan_book
 
-def assemble_scanned_book(work_dir, title=None, author=None, drama=False, preview_toc=False):
+def assemble_scanned_book(work_dir, title=None, author=None, drama=False, preview_toc=False, force_recrop=False):
     """
     汇编切片与出版级成书 (Assemble Mode)
     1. 自动定位 slice_plan.json 或扫描 raw_md 目录
@@ -436,7 +436,7 @@ def assemble_scanned_book(work_dir, title=None, author=None, drama=False, previe
 
     # 1.5 扫描并裁剪切片中的插图与图表 (300 DPI + 投影锁边)
     from chapter_assembler import crop_figures_for_work_dir
-    cropped_count = crop_figures_for_work_dir(work_dir)
+    cropped_count = crop_figures_for_work_dir(work_dir, force_recrop=force_recrop)
     if cropped_count > 0:
         log(f"正文插图锁边裁剪完成，共导出 {cropped_count} 张高清图片至 images/", 'ok')
 
@@ -523,7 +523,7 @@ def assemble_scanned_book(work_dir, title=None, author=None, drama=False, previe
                 preamble_text = "".join(preamble_lines).strip()
                 substantive_text = re.sub(r'#+.*|\s+|[-*_=~`]', '', preamble_text)
                 if len(substantive_text) > 40:
-                    chapters_raw.insert(0, ('前置信息', preamble_lines))
+                    chapters_raw.insert(0, ('前言与序幕', preamble_lines))
             else:
                 # 保存上一章
                 if current_title is not None:
@@ -645,6 +645,7 @@ def main():
     parser.add_argument("--chunk-size", type=int, default=15, help="扫描分片每切片页数 (默认 15 页)")
     parser.add_argument("--force-scan", action="store_true", help="强制作为扫描版切分，即使存在文字层")
     parser.add_argument("--extract-figures", metavar="PDF", help="直接从数字 PDF 中提取 300 DPI 紧致矢量图表至指定目录")
+    parser.add_argument("--force-recrop", action="store_true", help="汇编时强制重新裁切并锁边正文插图")
     parser.add_argument("--status", metavar="DIR", help="查看指定工作目录中各分片的落盘与转写完成进度")
     
     args = parser.parse_args()
@@ -691,7 +692,8 @@ def main():
             title=args.title,
             author=args.author,
             drama=args.drama,
-            preview_toc=False
+            preview_toc=False,
+            force_recrop=args.force_recrop
         )
         return
 

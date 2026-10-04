@@ -302,3 +302,44 @@ math[display="inline"], .math-inline {
   text-indent: 0 !important;
 }
 
+/* ===================================================
+   题记与卷首开篇诗专属出版级排版 (Epigraph & Poetry Styling)
+   =================================================== */
+section#题记, section[id*="题记"], section.epigraph-section, .epigraph, .poem-block {
+  padding: 12% 8% 8% 8%;
+}
+
+/* 原书无题记大标题与横线：在版面中优雅隐藏，保留在 TOC 目录大纲中 */
+section#题记 > h1, section[id*="题记"] > h1, section.epigraph-section > h1, h1.epigraph-title {
+  display: none !important;
+}
+
+/* 消除狗牙/阶梯状错位：全诗内部严格左侧齐头，优雅书卷楷体与舒展行距 */
+section#题记 p, section[id*="题记"] p, section.epigraph-section p, p.poem-stanza, .epigraph p, .poem-block p {
+  text-indent: 0 !important;
+  text-align: left !important;
+  margin-left: 18%;
+  margin-right: 10%;
+  margin-top: 0;
+  margin-bottom: 2em;
+  font-family: "KaiTi", "STKaiti", "Kaiti SC", "SimKai", "BiauKai", "FZKai-Z03S", serif;
+  font-size: 1.05em;
+  line-height: 2.15;
+  letter-spacing: 0.06em;
+  color: #2d3748;
+}
+
+@media (max-width: 600px) {
+  section#题记 p, section[id*="题记"] p, section.epigraph-section p, p.poem-stanza, .epigraph p, .poem-block p {
+    margin-left: 10%;
+    margin-right: 6%;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  section#题记 p, section[id*="题记"] p, section.epigraph-section p, p.poem-stanza, .epigraph p, .poem-block p {
+    color: #cbd5e0;
+  }
+}
+
+
