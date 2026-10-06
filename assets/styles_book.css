@@ -260,16 +260,18 @@ figure {
   page-break-inside: avoid;
 }
 
-figcaption {
+figcaption, p.caption, .figure-caption {
   font-size: 0.85em;
   color: #718096;
   margin-top: 0.6em;
   text-align: center;
+  text-indent: 0 !important;
   font-family: inherit;
+  line-height: 1.6;
 }
 
 @media (prefers-color-scheme: dark) {
-  figcaption {
+  figcaption, p.caption, .figure-caption {
     color: #a0aec0;
   }
 }
@@ -341,5 +343,46 @@ section#题记 p, section[id*="题记"] p, section.epigraph-section p, p.poem-st
     color: #cbd5e0;
   }
 }
+
+/* ===================================================
+   篇首作者小传卡片 / 题记引言框专属排版 (Author Bio Card)
+   =================================================== */
+.author-bio, .author-card, div.epigraph {
+  margin: 1.6em 5% 2.4em 5%;
+  padding: 1.1em 1.4em;
+  background-color: rgba(0, 0, 0, 0.02);
+  border-left: 3px solid #cbd5e0;
+  border-radius: 0 6px 6px 0;
+}
+
+@media (prefers-color-scheme: dark) {
+  .author-bio, .author-card, div.epigraph {
+    background-color: rgba(255, 255, 255, 0.03);
+    border-left-color: #4a5568;
+  }
+}
+
+.author-bio p, .author-card p, div.epigraph p {
+  text-indent: 0 !important;
+  text-align: left !important;
+  font-family: "KaiTi", "STKaiti", "Kaiti SC", "SimKai", "BiauKai", "FZKai-Z03S", serif;
+  font-size: 0.95em;
+  line-height: 1.95;
+  letter-spacing: 0.04em;
+  color: #4a5568;
+  margin-top: 0;
+  margin-bottom: 0.9em;
+}
+
+.author-bio p:last-child, .author-card p:last-child, div.epigraph p:last-child {
+  margin-bottom: 0;
+}
+
+@media (prefers-color-scheme: dark) {
+  .author-bio p, .author-card p, div.epigraph p {
+    color: #a0aec0;
+  }
+}
+
 
 

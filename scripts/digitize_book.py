@@ -447,7 +447,7 @@ def assemble_scanned_book(work_dir, title=None, author=None, drama=False, previe
 
     # 2a. 将所有切片顺序拼合为一个完整文本流，智能平滑缝合跨分片断句
     all_lines = []
-    block_prefixes = ('#', '!', '<', '>', '-', '*', '1.', '2.', '3.', '4.', '5.', '6.', '7.', '8.', '9.')
+    block_prefixes = ('#', '!', '<', '>', '-', '*', '——', '—', '--', '1.', '2.', '3.', '4.', '5.', '6.', '7.', '8.', '9.')
     seam_actions = {f"{os.path.basename(item['prev_file'])} -> {os.path.basename(item['next_file'])}": item for item in seam_findings}
     prev_mf = None
 
@@ -523,7 +523,17 @@ def assemble_scanned_book(work_dir, title=None, author=None, drama=False, previe
                 preamble_text = "".join(preamble_lines).strip()
                 substantive_text = re.sub(r'#+.*|\s+|[-*_=~`]', '', preamble_text)
                 if len(substantive_text) > 40:
-                    chapters_raw.insert(0, ('前言与序幕', preamble_lines))
+                    # 优先检测是否有显式的一级标题声明（如 # 题记 / # 序言）
+                    preamble_title = None
+                    for pl in preamble_lines:
+                        if pl.startswith('# ') and not pl.startswith('## '):
+                            preamble_title = pl[2:].strip()
+                            break
+                    if not preamble_title:
+                        # 智能识别体裁：字数较短（<1500字符）或包含诗歌分行硬换行，规范命名为“题记”，否则命名为“序言”
+                        is_epigraph = len(substantive_text) < 1500 or '\\\n' in preamble_text or '<br' in preamble_text
+                        preamble_title = '题记' if is_epigraph else '序言'
+                    chapters_raw.insert(0, (preamble_title, preamble_lines))
             else:
                 # 保存上一章
                 if current_title is not None:

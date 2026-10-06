@@ -23,32 +23,10 @@ sys.stdout.reconfigure(encoding='utf-8')
 
 def resolve_bbox_to_points(bbox, rect):
     """
-    Resolves bbox [ymin, xmin, ymax, xmax] to PDF points (x0, y0, x1, y1).
-    Unified Contract:
-    - Standard (SSOT): 0~1000 normalized permille coordinates.
-    - Defensive adapter: If coordinates are in raw PDF point space (e.g. ymax <= rect.height, xmax <= rect.width)
-      and normalized scaling would improperly collapse the box into a tiny top sliver, automatically detects and preserves raw points.
+    Resolves bbox [ymin, xmin, ymax, xmax] (0~1000 normalized permille) to PDF points (x0, y0, x1, y1).
+    Unified Single Source of Truth (SSOT): All bbox coordinates are in 0~1000 permille.
     """
     ymin, xmin, ymax, xmax = [float(v) for v in bbox]
-
-    # If any coordinate exceeds page dimensions, it is definitively in 0~1000 normalized space
-    if ymax > rect.height or xmax > rect.width or ymin > rect.height or xmin > rect.width:
-        x0 = (xmin / 1000.0) * rect.width
-        y0 = (ymin / 1000.0) * rect.height
-        x1 = (xmax / 1000.0) * rect.width
-        y1 = (ymax / 1000.0) * rect.height
-        return x0, y0, x1, y1
-
-    # Defensive check: if coordinates are within [0..rect.height, 0..rect.width]
-    norm_w = ((xmax - xmin) / 1000.0) * rect.width
-    norm_h = ((ymax - ymin) / 1000.0) * rect.height
-    pt_w = xmax - xmin
-    pt_h = ymax - ymin
-
-    if (norm_w < 50 or norm_h < 50) and (pt_w >= 50 and pt_h >= 50):
-        print(f"[*] Auto-adapted raw PDF points bbox [{ymin:.0f}, {xmin:.0f}, {ymax:.0f}, {xmax:.0f}] to points")
-        return xmin, ymin, xmax, ymax
-
     x0 = (xmin / 1000.0) * rect.width
     y0 = (ymin / 1000.0) * rect.height
     x1 = (xmax / 1000.0) * rect.width
@@ -57,14 +35,13 @@ def resolve_bbox_to_points(bbox, rect):
 
 def crop_and_snap_figure(doc, page_no, bbox_norm, out_path):
     """
-    Crop figure from slice PDF page using normalized bbox [ymin, xmin, ymax, xmax] (0~1000) or points.
-    Performs 3-step edge-locking:
-    1. Safety padding expansion (+15 points).
-    2. High-res 300 DPI pixmap rendering.
-    3. NumPy projection profile snap (shrink to non-white boundary & isolate bottom captions).
+    Crop figure from slice PDF page using normalized bbox [ymin, xmin, ymax, xmax] (0~1000).
+    Renders in 300 DPI high resolution.
+    Safely trims pure paper margins without destructive frame snapping or gutter slicing.
     """
     import fitz
     import numpy as np
+    from PIL import Image
 
     if page_no < 0 or page_no >= len(doc):
         print(f"[-] Warning: page_no {page_no} out of bounds (0..{len(doc)-1})")
@@ -74,76 +51,35 @@ def crop_and_snap_figure(doc, page_no, bbox_norm, out_path):
     rect = page.rect
     x0, y0, x1, y1 = resolve_bbox_to_points(bbox_norm, rect)
 
-    # 1. Safety padding expansion
-    pad = 15
-    crop_rect = fitz.Rect(
-        max(0, x0 - pad),
-        max(0, y0 - pad),
-        min(rect.width, x1 + pad),
-        min(rect.height, y1 + pad)
-    )
-
-    # 2. 300 DPI rendering
+    crop_rect = fitz.Rect(x0, y0, x1, y1)
     mat = fitz.Matrix(300 / 72, 300 / 72)
     pix = page.get_pixmap(matrix=mat, clip=crop_rect, alpha=False)
 
-    # 3. NumPy projection profile snapping
     try:
         samples = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.h, pix.w, pix.n)
         gray = np.mean(samples[:, :, :3], axis=2)
 
-        # White threshold: background paper usually > 245
+        # Trims pure white paper margin (>240 across whole row/col) to tight subject envelope
         row_min = np.min(gray, axis=1)
         col_min = np.min(gray, axis=0)
 
-        valid_rows = np.where(row_min < 245)[0]
-        valid_cols = np.where(col_min < 245)[0]
+        ink_rows = np.where(row_min < 240)[0]
+        ink_cols = np.where(col_min < 240)[0]
 
-        if len(valid_rows) > 0 and len(valid_cols) > 0:
-            top, bottom = int(valid_rows[0]), int(valid_rows[-1])
-            left, right = int(valid_cols[0]), int(valid_cols[-1])
+        if len(ink_rows) > 0 and len(ink_cols) > 0:
+            margin = 1  # 1px anti-aliasing guard at 300 DPI (< 0.25 pt)
+            top = max(0, int(ink_rows[0]) - margin)
+            bottom = min(pix.h - 1, int(ink_rows[-1]) + margin)
+            left = max(0, int(ink_cols[0]) - margin)
+            right = min(pix.w - 1, int(ink_cols[-1]) + margin)
 
-            # 4. Rectangular border frame snapping (e.g. ancient woodblock, Tuibeitu, charts)
-            dense_rows = np.where((gray < 160).sum(axis=1) > int(pix.w * 0.25))[0]
-            dense_cols = np.where((gray < 160).sum(axis=0) > int(pix.h * 0.25))[0]
-            if len(dense_rows) >= 2 and len(dense_cols) >= 2:
-                frame_top, frame_bottom = int(dense_rows[0]), int(dense_rows[-1])
-                frame_left, frame_right = int(dense_cols[0]), int(dense_cols[-1])
-                # Ensure the frame constitutes a meaningful box
-                if (frame_bottom - frame_top) > int(pix.h * 0.25) and (frame_right - frame_left) > int(pix.w * 0.25):
-                    top = max(0, frame_top - 4)
-                    bottom = min(pix.h - 1, frame_bottom + 4)
-                    left = max(0, frame_left - 4)
-                    right = min(pix.w - 1, frame_right + 4)
-
-            # Check for caption/text gutter cutoff in the bottom 40%
-            total_h = bottom - top + 1
-            if total_h > 80:
-                check_start = int(top + total_h * 0.6)
-                bottom_rows = row_min[check_start:bottom + 1]
-                is_white = (bottom_rows >= 248).astype(int)
-                diffs = np.diff(np.concatenate(([0], is_white, [0])))
-                starts = np.where(diffs == 1)[0]
-                ends = np.where(diffs == -1)[0]
-                for s, e in zip(starts, ends):
-                    if (e - s) >= 8 and (check_start + s) < bottom - 10:
-                        bottom = check_start + s
-                        break
-
-            # Text-only image sanity warning: check if image is purely horizontal text rows
-            cropped_h = bottom - top + 1
-            cropped_w = right - left + 1
-            if cropped_h < 120 and cropped_w > 500:
-                print(f"[!] Warning: Figure crop {out_path} has very low height ({cropped_h}px), verify it is not accidental text!")
-
-            from PIL import Image
             img = Image.frombytes('RGB', [pix.w, pix.h], pix.samples)
             cropped_img = img.crop((left, top, right + 1, bottom + 1))
             os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
             cropped_img.save(out_path)
             return True
     except Exception as e:
-        print(f"[-] Notice: projection snapping fallback to raw crop: {e}")
+        print(f"[-] Notice: safe trim fallback to raw crop: {e}")
 
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     pix.save(out_path)
@@ -221,10 +157,10 @@ def normalize_text_layout(text, is_drama=False):
     text = re.sub(r'```$', '', text.strip(), flags=re.MULTILINE)
     
     # 1. Fix unspaced lists: ensure blank line before list if preceded by text
-    # e.g., 'Text\n- Item' -> 'Text\n\n- Item'
-    text = re.sub(r'([^\n])\n([-*]\s+[^\n]+)', r'\1\n\n\2', text)
+    # Supports both unordered (-, *) and ordered (1., 2.) list markers
+    text = re.sub(r'([^\n])\n((?:[-*+]|\d+[\.\)])\s+[^\n]+)', r'\1\n\n\2', text)
     # Ensure blank line after list block ends
-    text = re.sub(r'(\n[-*]\s+[^\n]+)\n+([^-*\n\s])', r'\1\n\n\2', text)
+    text = re.sub(r'(\n(?:[-*+]|\d+[\.\)])\s+[^\n]+)\n+([^-\d*+\n\s])', r'\1\n\n\2', text)
     
     if is_drama:
         # Drama specific normalization
@@ -285,6 +221,7 @@ def preserve_poetic_line_breaks(text, chapter_title=""):
     """
     Auto-detect and preserve poetic/epigraph line breaks with trailing backslashes `\\`.
     Prevents CommonMark/Pandoc from collapsing intentional stanzas into a single run-on <p>.
+    For normal prose chapters, strips trailing `\\` from narrative prose to ensure proper flowing paragraphs.
     """
     is_poetic_chapter = any(kw in chapter_title for kw in ("题记", "序诗", "献词", "诗篇", "诗歌"))
     blocks = re.split(r'\n\n+', text)
@@ -301,18 +238,21 @@ def preserve_poetic_line_breaks(text, chapter_title=""):
             processed_blocks.append(block)
             continue
 
+        # Check if this block is a list (ordered or unordered or Chinese numbered list)
+        is_list_block = any(
+            re.match(r'^\s*(?:\d+[\.\)]|[-*+]|[一二三四五六七八九十]+[、.]|（[一二三四五六七八九十\d]+）)\s+', l)
+            for l in lines
+        )
+        if is_list_block:
+            processed_blocks.append(block)
+            continue
+
         non_empty = [l.strip() for l in lines if l.strip()]
         if not non_empty:
             processed_blocks.append(block)
             continue
 
-        avg_len = sum(len(l) for l in non_empty) / len(non_empty)
-
-        # In a poetic chapter, any multiline regular text block is treated as poetry.
-        # In general text, if lines are short (< 35 chars) and lack terminal punctuation on intermediate lines
-        should_preserve = is_poetic_chapter or (avg_len < 35 and not any(l.endswith(('。', '！', '？', '；')) for l in non_empty[:-1]))
-
-        if should_preserve:
+        if is_poetic_chapter:
             new_lines = []
             for i, line in enumerate(lines):
                 s = line.rstrip()
@@ -321,7 +261,10 @@ def preserve_poetic_line_breaks(text, chapter_title=""):
                 new_lines.append(s)
             processed_blocks.append('\n'.join(new_lines))
         else:
-            processed_blocks.append(block)
+            # Normal prose: strip accidental trailing backslashes inside paragraphs and merge into natural flowing prose
+            clean_lines = [re.sub(r'\\+$', '', l).strip() for l in lines]
+            merged = "".join(clean_lines)
+            processed_blocks.append(merged)
 
     return '\n\n'.join(processed_blocks)
 

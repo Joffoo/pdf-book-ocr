@@ -24,7 +24,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 # 终结标点符号集
 TRUE_TERMINAL_PUNCT = '。！？…；:：'
 CLOSING_BRACKETS = '”’）】》」』'
-BLOCK_PREFIXES = ('#', '!', '<', '>', '-', '*', '1.', '2.', '3.', '4.', '5.', '6.', '7.', '8.', '9.')
+BLOCK_PREFIXES = ('#', '!', '<', '>', '-', '*', '——', '—', '--', '1.', '2.', '3.', '4.', '5.', '6.', '7.', '8.', '9.')
 
 def is_line_terminated(line):
     """判断行末是否为真正的句子终结标点"""

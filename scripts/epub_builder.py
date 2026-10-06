@@ -179,7 +179,7 @@ tags:
                 if any(k in h1_html for k in ['目录', '扉页', '题记', '前言', '后记', '附录', '联系', '编辑']):
                     return f'{h1_html}\n<p>{p_html}</p>'
                 clean_p = re.sub(r'<[^>]+>', '', p_html).strip()
-                if 0 < len(clean_p) <= 20 and not any(k in clean_p for k in ['。', '，', '、', '！', '？', '：', '；', '“', '”', '《', '/']):
+                if 0 < len(clean_p) <= 25 and not any(clean_p.endswith(k) for k in ['。', '！', '？', '；']) and not clean_p.startswith(('<img', '<figure')):
                     return f'{h1_html}\n<p class="chapter-author">{p_html}</p>'
                 return f'{h1_html}\n<p>{p_html}</p>'
 
@@ -188,6 +188,28 @@ tags:
             # If no chapter-author was tagged in this file, mark h1 as no-author
             if 'class="chapter-author"' not in text:
                 text = re.sub(r'<h1(?!\s+class=)', r'<h1 class="no-author"', text, count=1)
+
+            # Transform inline em captions: <p><img ... /> <em>caption</em></p> -> <figure><figcaption>
+            text = re.sub(
+                r'<p><img\s+src="([^"]+)"\s+alt=""\s*/>\s*<em>(.*?)</em></p>',
+                r'<figure>\n<img src="\1" alt="\2" />\n<figcaption>\2</figcaption>\n</figure>',
+                text
+            )
+
+            # Transform standalone figure captions following an image
+            author_bio_kws = ['1985年', '1983年', '1976年', '1984年', '1994年', '1987年', '1982年', '1973年', '1993年', '本名', '生于']
+            def tag_figcaption(m):
+                src = m.group(1)
+                cap = m.group(2).strip()
+                if any(kw in cap for kw in author_bio_kws) or len(cap) > 120 or cap.startswith(('<img', '<figure', '<h')):
+                    return m.group(0)
+                return f'<figure>\n<img src="{src}" alt="{cap}" />\n<figcaption>{cap}</figcaption>\n</figure>'
+
+            text = re.sub(
+                r'<p><img\s+src="([^"]+)"\s+alt=""\s*/>\s*</p>\s*<p>([^\n<]+(?:<em>[^\n<]+</em>[^\n<]*)*)</p>',
+                tag_figcaption,
+                text
+            )
 
             # Tag dialogue paragraphs
             text = re.sub(r'<p>(<strong>[^*<]+</strong>[：:])', tag_p, text)
