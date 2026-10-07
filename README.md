@@ -1,160 +1,42 @@
 # PDF Book OCR (出版级图书数字化与 EPUB 3 排版引擎)
 
-> **Publication-grade PDF-to-EPUB 3 & Obsidian digitizer powered by Multimodal AI Agents.**  
-> **基于多模态 AI 智能体的大师级长篇图书数字化、语义重构与流式排版引擎。**
+> **基于多模态 AI 智能体的大师级长篇图书数字化、语义重构与流式排版引擎。**  
+> **Publication-grade PDF-to-EPUB 3 & Obsidian digitizer powered by Multimodal AI Agents.**
 
 <p align="center">
-  <a href="#english">English</a> •
   <a href="#简体中文">简体中文</a> •
+  <a href="#english">English</a> •
   <a href="#license">License</a>
 </p>
-
----
-
-<a name="english"></a>
-## English
-
-`pdf-book-ocr` converts long-form PDF books (100–500+ pages, scanned prints or digital PDFs) into publication-grade **EPUB 3** e-books and archival **Obsidian Markdown** vaults.
-
-Designed around a **Single Source of Truth (SSOT)** and an **Agent-Native** division of responsibility, it avoids heuristic guessing, brittle keyword enumeration, and hardcoded development paths.
-
-### 🌟 Key Features
-
-1. **Agent-Native Architecture (Cognition vs. Execution)**
-   - **Semantic decisions by Agents**: Subagents visually classify headings, portrait layouts, captions, and ignore barcode/CIP pages based on positive prompts.
-   - **Deterministic execution by Code**: PyMuPDF and Pandoc handle 300 DPI rasterization, footnote namespace remapping, MathML formulas, and zip packaging without guessing semantics.
-2. **Unified Single-Source Figure Pipeline**
-   - Universal figure protocol `<!-- FIGURE: page=N bbox=[ymin, xmin, ymax, xmax] -->` across all genres.
-   - Deterministic 300 DPI high-resolution cropping with paper-margin snapping. Whether the source is a scanned photograph, an archival painting, or an Excel/Matplotlib vector chart, PyMuPDF renders it losslessly.
-   - Strict figure-text orthogonality prevents duplicate text in images.
-3. **Seam Continuity & Sentence Healing (`seam_auditor`)**
-   - Automatically inspects the junction pairs between consecutive chunks.
-   - State-machine healing: closes cross-slice quotation marks (`MERGE`), sutures mid-sentence breaks (`MERGE`), and deduplicates overlapping OCR text (`MERGE_DEDUP`).
-   - Recursively peels nested closing bracket stacks (`。”）`) to prevent false joins.
-4. **Language-Aware Typography (`smart_join_lines`)**
-   - Distinguishes Latin/ASCII line wraps (preserving spaces) from CJK characters (merging seamlessly without spurious spaces).
-   - Protects Markdown links and footnotes from regex corruption.
-5. **EPUB 3 Classical Styling & MathML Support**
-   - Built-in classical typographic theme ([`styles_book.css`](assets/styles_book.css)) with Kaiti chapter-author styles, elegant dividers, and centered epigraph stanzas.
-   - Full EPUB 3 popup footnote support (`epub:type="noteref"` / `<aside epub:type="footnote">`).
-   - Compiles inline and block LaTeX formulas to W3C-compliant semantic MathML with offline compatibility across Apple Books, WeChat Read, KOReader, and Kindle.
-6. **Transparent Review Gates (Zero Silent Deletion)**
-   - Pre-flight TOC manifest (`--preview-toc`) exports `toc_manifest.json` with character counts and anomaly tags.
-   - Copyright or front-matter pages trigger review warnings instead of silent data drops.
-
----
-
-### 🏗 Architecture & Pipeline
-
-```
-[Source PDF (Scanned Print or Digital PDF)]
-       │
-       ▼ (Step 1: Preflight & Slice Planning)
- digitize_book.py ──> Extracts cover, plans 10~15 page slices, extracts Global TOC whitelist
-       │              (Generates slice_plan.json & subagent_jobs.json)
-       ▼
-[Step 2: Subagent Rolling Batches] ──> Positive prompt contracts, transcribes to raw_md/*.md
-       │
-       ▼ (Step 3: Semantic Assembly & TOC Review Gate)
- digitize_book.py --preview-toc / --assemble
-       ├── seam_auditor.py: Junction continuity audit & quotation healing (seam_report.md)
-       ├── toc_manifest.json: Structure verification against Global TOC whitelist
-       ├── chapter_assembler.py: Dynamic H2 aggregation & footnote namespace isolation
-       └── epub_builder.py: Pandoc compilation to EPUB 3 + popup footnotes + MathML
-       │
-       ▼ (Step 4: Delivery)
- 《Title》.epub + 《Title》.md + images/ (Output Directory)
-```
-
----
-
-### 📦 Installation
-
-#### Prerequisites
-- **Python**: 3.10 or higher
-- **Pandoc**: 3.0 or higher ([Installation Guide](https://pandoc.org/installing.html))
-
-```bash
-# 1. Clone repository
-git clone https://github.com/Joffoo/pdf-book-ocr.git
-cd pdf-book-ocr
-
-# 2. Install Python dependencies
-pip install -r requirements.txt
-
-# 3. Verify environment
-python scripts/digitize_book.py --doctor
-```
-
----
-
-### 🚀 Usage
-
-#### 1. Plan & Slice
-```bash
-python scripts/digitize_book.py "book.pdf"
-```
-Automatically extracts the cover, slices the book into manageable 10–15 page chunks in `parts/`, and generates `subagent_jobs.json`.
-
-#### 2. Transcribe Slices
-Dispatch chunks to AI agents (e.g. Gemini, Claude, GPT-4o) using prompt templates in `references/prompts/`:
-- `prose.txt`: General prose, fiction, non-fiction
-- `academic.txt`: Scholarly monographs with formulas & citations
-- `drama.txt`: Scripts, dialogues, stage directions
-- `digital.txt`: Fast semantic cleanup for digital PDFs
-
-Each slice transcribes to `raw_md/part_XX.md`.
-
-#### 3. Preview TOC (Optional Review Gate)
-```bash
-python scripts/digitize_book.py --preview-toc "book_output"
-```
-Generates `toc_manifest.json` and prints the chapter tree to ensure sub-sections have not been erroneously promoted.
-
-#### 4. Assemble & Compile
-```bash
-# General prose / academic monograph
-python scripts/digitize_book.py --assemble "book_output"
-
-# Drama / play script
-python scripts/digitize_book.py --assemble "book_output" --drama
-
-# Force re-cropping of figures
-python scripts/digitize_book.py --assemble "book_output" --force-recrop
-```
 
 ---
 
 <a name="简体中文"></a>
 ## 简体中文
 
-`pdf-book-ocr` 是一款面向公开发行图书（100~500+ 页，扫描件或数字版）的高精度数字化工具，能够将长篇文献一键转录为出版级 **EPUB 3** 电子书与典藏版 **Obsidian 笔记**。
+`pdf-book-ocr` 是一款面向长篇图书（100~500+ 页，扫描件或数字版 PDF）的高精度数字化与排版工具，能够将复杂书籍一键转录为出版级 **EPUB 3** 电子书与典藏版 **Obsidian Markdown** 文档。
 
-本项目贯彻**单一真理源（SSOT）**与 **Agent-Native** 架构，彻底剥离针对单本书打补丁的脆弱正则、年份白名单与平台私有路径，具备高通用性、零误杀与零机器特异性。
+工具采用“多模态 AI 理解 + 本地确定性工程”的协同设计，在确保全书文字与结构高度精确的同时，完整还原图书的经典排版韵味、高清插图与双向学术注释。
 
 ### 🌟 核心特性
 
-1. **智能体原生架构（认知与执行明确分工）**
-   - **认知归智能体**：篇章标题分级、篇首肖像与生平、插图边界、文前文后版权过滤等认知任务，由正向 Prompt 契约约束 Agent 决策。
-   - **执行归代码**：300 DPI 物理光栅化裁剪、脚注命名空间隔离映射、MathML 公式转译、EPUB 容器封装由确定性 Python 脚本执行，拒绝用代码盲猜人类语义。
-2. **单轨统一插图引擎（Unified Figure Pipeline）**
-   - 全体裁通用标注契约：`<!-- FIGURE: page=N bbox=[ymin, xmin, ymax, xmax] -->`。
-   - 300 DPI 紧致锁边：无论是印刷照片、手绘线描，还是 Excel/Matplotlib 渲染的非图像矢量信息图，PyMuPDF 直接按坐标无损光栅化切图，杜绝移动端宽表坍塌。
-   - 图文正交互斥律：正文已录入文本与插图 `bbox` 物理区域严格互斥，杜绝文字在图片中二次泄露。
-3. **出版级接缝审计与语义闭环（`seam_auditor`）**
-   - 自动提取相邻切片交界接口并进行语义拓扑诊断。
-   - 状态机平滑缝合：跨切片对白引号闭环焊接（`MERGE`）、未完结断句自动缝合（`MERGE`）、文本重叠自动剔除（`MERGE_DEDUP`）。
-   - 递归剥离末尾多层连续闭合符号堆栈（如 `。”）`），精准探测内层真实标点，杜绝误判假断缝。
-4. **语言拓扑自适应缝合（`smart_join_lines`）**
-   - 自动识别断行分界特征：分界处两侧为拉丁/ASCII 字符（如英文单词、逗号）时保留空格，任意一侧为 CJK 汉字或标点时无缝拼接，彻底消除“英文粘连吃空格”缺陷。
-   - 标点全角规约具备负向先行断言，严格保护 Markdown 超链接语法。
-5. **经典书卷排版与 MathML 原生支持**
-   - 内置经典纸书排版样式表（[`styles_book.css`](assets/styles_book.css)），支持楷体章节作者署名卡、优雅分割线与居中独立题记/序诗。
-   - 完美适配 EPUB 3 双向弹出式气泡脚注（`epub:type="noteref"` / `<aside epub:type="footnote">`）。
-   - Pandoc 原生转译 TeX 为语义化 MathML，离线自适应夜间模式与墨水屏设备。
-6. **透明化审查门禁（零静默删除）**
-   - 支持 `--preview-toc` 预检大纲与篇幅体量，输出 `toc_manifest.json`。
-   - 版权页与疑似短章仅作 Warning 预警呈现，代码坚守数据中立，绝不静默删除用户章节。
+1. **多模态理解与工程执行协同**
+   - **大模型负责语义理解与版式感知**：章节标题层级、篇首署名排版、插图区域检测与版权元数据归纳。
+   - **本地脚本负责精密工程执行**：300 DPI 高清无损裁图、跨分片接缝连续性修复、脚注独立命名空间映射与 EPUB 3 容器封装。
+2. **统一高清插图提取管线**
+   - 全书插图统一标注协议：`<!-- FIGURE: page=N bbox=[ymin, xmin, ymax, xmax] -->`。
+   - 自动按坐标从原始 PDF 中光栅化裁切 300 DPI 锁边图像，无论是印刷照片、手绘线描还是信息图表均可高清呈现。
+   - 图文正交互斥，杜绝录入正文与插图文字重复。
+3. **接缝连续性审计与缝合（`seam_auditor`）**
+   - 自动化跨分片接缝平滑缝合：智能识别分片边缘的断句、跨切片引号闭合与重叠行消除，确保长篇连贯阅读体验。
+4. **中英双态智能折行排版**
+   - 智能识别断行特征：中文行尾自动无缝接排，西文字词换行自动保留空格，同时保护 Markdown 链接与脚注语法不受破坏。
+5. **经典书卷排版与 MathML 公式支持**
+   - 内置经典排版样式表（[`styles_book.css`](assets/styles_book.css)），支持楷体章节作者卡、优雅分割线与居中独立题记。
+   - 完美支持 EPUB 3 双向弹出式气泡脚注（`epub:type="noteref"` / `<aside epub:type="footnote">`）。
+   - LaTeX 数学公式编译为 W3C 标准 MathML，自适应各大主流阅读器、夜间模式与墨水屏设备。
+6. **目录审查门禁（TOC Review Gate）**
+   - 支持通过 `--preview-toc` 预检全书大纲层级与字数分布，生成清单供快速核验，确保章节划分清晰准确。
 
 ---
 
@@ -251,8 +133,118 @@ pdf-book-ocr/
 
 ---
 
+<a name="english"></a>
+## English
+
+`pdf-book-ocr` is a high-precision digitizer and typesetting engine designed for long-form publications (100–500+ pages, scanned prints or digital PDFs). It converts complex books into publication-grade **EPUB 3** e-books and archival **Obsidian Markdown** vaults.
+
+By combining multimodal AI vision with deterministic engineering, `pdf-book-ocr` ensures structural fidelity, classical typographic aesthetics, crisp figure reproduction, and native academic footnotes.
+
+### 🌟 Key Features
+
+1. **Multimodal AI & Deterministic Engineering**
+   - **Semantic layout vision by AI**: Chapter hierarchy classification, author epigraph styling, figure bounding-box detection, and front-matter parsing.
+   - **Precision engineering by Code**: 300 DPI lossless rasterization, cross-slice seam healing, footnote namespace isolation, and EPUB 3 container packaging.
+2. **Unified High-Resolution Figure Pipeline**
+   - Universal figure protocol across all genres: `<!-- FIGURE: page=N bbox=[ymin, xmin, ymax, xmax] -->`.
+   - Deterministic 300 DPI high-resolution cropping directly from the source PDF, ensuring crisp rendering for photographs, line art, and complex vector charts.
+   - Strict figure-text orthogonality prevents duplicated text between prose and images.
+3. **Seam Continuity & Sentence Healing (`seam_auditor`)**
+   - Automated junction inspection across batch slices: heals mid-sentence breaks, sutures unclosed quotes, and deduplicates overlapping lines.
+4. **Language-Aware Typography**
+   - Intelligent line-wrap normalization: CJK characters merge seamlessly without extraneous spaces, while Latin/ASCII words preserve word spacing. Protects Markdown links and footnotes from regex corruption.
+5. **Classical Typography & Semantic MathML**
+   - Built-in classical typographic theme ([`styles_book.css`](assets/styles_book.css)) with Kaiti chapter-author cards, elegant dividers, and centered epigraphs.
+   - Native EPUB 3 popup footnote support (`epub:type="noteref"` / `<aside epub:type="footnote">`).
+   - Compiles LaTeX formulas into W3C-standard MathML, natively responsive across e-readers, dark mode, and E-Ink screens.
+6. **TOC Review Gate**
+   - Pre-flight chapter inspection via `--preview-toc`, exporting `toc_manifest.json` with word counts to verify structural hierarchy before compilation.
+
+---
+
+### 🏗 Architecture & Pipeline
+
+```
+[Source PDF (Scanned Print or Digital PDF)]
+       │
+       ▼ (Step 1: Preflight & Slice Planning)
+ digitize_book.py ──> Extracts cover, plans 10~15 page slices, extracts Global TOC whitelist
+       │              (Generates slice_plan.json & subagent_jobs.json)
+       ▼
+[Step 2: Subagent Rolling Batches] ──> Positive prompt contracts, transcribes to raw_md/*.md
+       │
+       ▼ (Step 3: Semantic Assembly & TOC Review Gate)
+ digitize_book.py --preview-toc / --assemble
+       ├── seam_auditor.py: Junction continuity audit & quotation healing (seam_report.md)
+       ├── toc_manifest.json: Structure verification against Global TOC whitelist
+       ├── chapter_assembler.py: Dynamic H2 aggregation & footnote namespace isolation
+       └── epub_builder.py: Pandoc compilation to EPUB 3 + popup footnotes + MathML
+       │
+       ▼ (Step 4: Delivery)
+ 《Title》.epub + 《Title》.md + images/ (Output Directory)
+```
+
+---
+
+### 📦 Installation
+
+#### Prerequisites
+- **Python**: 3.10 or higher
+- **Pandoc**: 3.0 or higher ([Installation Guide](https://pandoc.org/installing.html))
+
+```bash
+# 1. Clone repository
+git clone https://github.com/Joffoo/pdf-book-ocr.git
+cd pdf-book-ocr
+
+# 2. Install Python dependencies
+pip install -r requirements.txt
+
+# 3. Verify environment
+python scripts/digitize_book.py --doctor
+```
+
+---
+
+### 🚀 Usage & CLI Reference
+
+#### 1. Plan & Slice
+```bash
+python scripts/digitize_book.py "book.pdf"
+```
+Automatically extracts the cover, slices the book into manageable 10–15 page chunks in `parts/`, and generates `subagent_jobs.json`.
+
+#### 2. Transcribe Slices
+Dispatch chunks to AI agents (e.g. Gemini, Claude, GPT-4o) using prompt templates in `references/prompts/`:
+- `prose.txt`: General prose, fiction, non-fiction
+- `academic.txt`: Scholarly monographs with formulas & citations
+- `drama.txt`: Scripts, dialogues, stage directions
+- `digital.txt`: Fast semantic cleanup for digital PDFs
+
+Each slice transcribes to `raw_md/part_XX.md`.
+
+#### 3. Preview TOC (Optional Review Gate)
+```bash
+python scripts/digitize_book.py --preview-toc "book_output"
+```
+Generates `toc_manifest.json` and prints the chapter tree to ensure sub-sections have not been erroneously promoted.
+
+#### 4. Assemble & Compile
+```bash
+# General prose / academic monograph
+python scripts/digitize_book.py --assemble "book_output"
+
+# Drama / play script
+python scripts/digitize_book.py --assemble "book_output" --drama
+
+# Force re-cropping of figures
+python scripts/digitize_book.py --assemble "book_output" --force-recrop
+```
+
+---
+
 <a name="license"></a>
 ## 📄 License
 
-This project is licensed under the [MIT License](LICENSE).
+This project is licensed under the [MIT License](LICENSE).  
 本项目遵循 [MIT License](LICENSE) 开源协议。
