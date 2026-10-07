@@ -49,8 +49,11 @@ def extract_tight_vector_figures(pdf_path, out_images_dir, dpi=300, prefix="fig_
     mat = fitz.Matrix(zoom, zoom)
 
     # 1. 扫描所有页面的图题
-    # 匹配模式：如 "图 1：2022年各市场占比" 或 "图1: ..."
-    fig_title_pattern = re.compile(r'^(?:图|表)\s*(\d+)[:：]\s*(.*)', re.MULTILINE)
+    # 匹配模式：如 "图 1：...", "图 1-1：", "表 2.3:", "Figure 1:", "Fig. 1.2:", "图一："
+    fig_title_pattern = re.compile(
+        r'^(?:图|表|Figure|Fig\.|Table)\s*([0-9]+(?:[-_.][0-9]+)*|[一二三四五六七八九十]+)[:：.]\s*(.*)',
+        re.IGNORECASE | re.MULTILINE
+    )
     
     figures = []
     for pno, page in enumerate(doc):
@@ -61,10 +64,10 @@ def extract_tight_vector_figures(pdf_path, out_images_dir, dpi=300, prefix="fig_
                 line_str = line.strip()
                 m = fig_title_pattern.match(line_str)
                 if m:
-                    fnum = int(m.group(1))
+                    fnum_str = m.group(1).strip()
                     ftitle = m.group(2).strip()
                     figures.append({
-                        'fnum': fnum,
+                        'fnum': fnum_str,
                         'title': ftitle,
                         'pno': pno,
                         'title_box': b,
@@ -72,8 +75,13 @@ def extract_tight_vector_figures(pdf_path, out_images_dir, dpi=300, prefix="fig_
                     })
                     break
 
-    # 按图号自然排序
-    figures.sort(key=lambda x: (x['fnum'], x['pno']))
+    def fig_sort_key(x):
+        raw = str(x['fnum'])
+        nums = [int(n) for n in re.findall(r'\d+', raw)]
+        return (nums if nums else [raw], x['pno'])
+
+    # 按图号与页码自然排序
+    figures.sort(key=fig_sort_key)
 
     # 2. 逐图计算严格紧凑边界
     results = {}
@@ -152,7 +160,11 @@ def extract_tight_vector_figures(pdf_path, out_images_dir, dpi=300, prefix="fig_
         clip_rect = fitz.Rect(x0, y0, x1, y1)
         pix = page.get_pixmap(matrix=mat, clip=clip_rect, alpha=False)
 
-        img_name = f"{prefix}{fnum:02d}.png"
+        if str(fnum).isdigit():
+            suffix = f"{int(fnum):02d}"
+        else:
+            suffix = re.sub(r'[^A-Za-z0-9_-]', '_', str(fnum))
+        img_name = f"{prefix}{suffix}.png"
         img_target = os.path.join(out_images_dir, img_name)
         pix.save(img_target)
 
@@ -196,8 +208,8 @@ def main():
     print(f"[*] 输出目录: {out_dir}")
     figures = extract_tight_vector_figures(pdf_path, out_dir, dpi=args.dpi, prefix=args.prefix)
     print(f"[√] 成功提取 {len(figures)} 个紧致矢量图表！")
-    for fnum, info in sorted(figures.items()):
-        print(f"  - 图 {fnum:02d} (P{info['page']}): {info['image_filename']} ({info['width']}x{info['height']}) - {info['title']}")
+    for fnum, info in sorted(figures.items(), key=lambda kv: [int(n) for n in re.findall(r'\d+', str(kv[0]))] or [str(kv[0])]):
+        print(f"  - 图 {fnum} (P{info['page']}): {info['image_filename']} ({info['width']}x{info['height']}) - {info['title']}")
 
 if __name__ == "__main__":
     main()

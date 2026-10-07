@@ -26,12 +26,21 @@ sys.stdout.reconfigure(encoding='utf-8')
 def find_pandoc():
     p = shutil.which('pandoc')
     if p: return p
-    candidates = [
-        r'E:\Pandoc\pandoc.exe',
-        r'C:\Program Files\Pandoc\pandoc.exe',
-        r'C:\Users\%s\AppData\Local\Pandoc\pandoc.exe' % os.environ.get('USERNAME', '')
-    ]
-    for c in candidates:
+    std_candidates = []
+    if os.name == 'nt':
+        local_appdata = os.environ.get('LOCALAPPDATA', '')
+        program_files = os.environ.get('ProgramFiles', 'C:\\Program Files')
+        program_files_x86 = os.environ.get('ProgramFiles(x86)', 'C:\\Program Files (x86)')
+        std_candidates.extend([
+            os.path.join(program_files, 'Pandoc', 'pandoc.exe'),
+            os.path.join(program_files_x86, 'Pandoc', 'pandoc.exe'),
+            os.path.join(local_appdata, 'Pandoc', 'pandoc.exe'),
+        ])
+    elif sys.platform == 'darwin':
+        std_candidates.extend(['/usr/local/bin/pandoc', '/opt/homebrew/bin/pandoc'])
+    elif sys.platform.startswith('linux'):
+        std_candidates.extend(['/usr/bin/pandoc', '/usr/local/bin/pandoc'])
+    for c in std_candidates:
         if os.path.exists(c): return c
     raise FileNotFoundError("Pandoc executable not found! Please install Pandoc or add to PATH.")
 
@@ -46,7 +55,9 @@ def build_epub_and_master(
     publisher=None,
     css_path=None,
     front_matter_md=None,
-    resource_path=None
+    resource_path=None,
+    tags=None,
+    is_drama=False
 ):
     pandoc_exe = find_pandoc()
     print(f"[*] Found Pandoc: {pandoc_exe}")
@@ -61,15 +72,20 @@ def build_epub_and_master(
     # 1. Build Master Obsidian Markdown note
     if out_master_md:
         print(f"[*] Building Master Obsidian Markdown: {out_master_md}")
+        if tags is None:
+            tag_list = ['书籍', '电子书']
+        elif isinstance(tags, str):
+            tag_list = [t.strip() for t in tags.split(',') if t.strip()]
+        else:
+            tag_list = list(tags)
+        tag_yaml = "\n".join(f"  - {t}" for t in tag_list)
         header = f"""---
 title: {title}
 author: "{author}"
 {f'translator: "{translator}"' if translator else ''}
 date: {datetime.date.today().isoformat()}
 tags:
-  - 来源/AIChat
-  - 工具/Antigravity
-  - 资源/电子书
+{tag_yaml}
 {f'cover: "[[{os.path.basename(cover_image)}]]"' if cover_image else ''}
 ---
 
@@ -172,23 +188,6 @@ tags:
         if name.endswith(('.xhtml', '.html')) and not name.endswith('nav.xhtml'):
             text = files_data[name].decode('utf-8', errors='ignore')
             
-            # Tag chapter author/subtitle right after <h1>
-            def tag_author(m):
-                h1_html = m.group(1)
-                p_html = m.group(2)
-                if any(k in h1_html for k in ['目录', '扉页', '题记', '前言', '后记', '附录', '联系', '编辑']):
-                    return f'{h1_html}\n<p>{p_html}</p>'
-                clean_p = re.sub(r'<[^>]+>', '', p_html).strip()
-                if 0 < len(clean_p) <= 25 and not any(clean_p.endswith(k) for k in ['。', '！', '？', '；']) and not clean_p.startswith(('<img', '<figure')):
-                    return f'{h1_html}\n<p class="chapter-author">{p_html}</p>'
-                return f'{h1_html}\n<p>{p_html}</p>'
-
-            text = re.sub(r'(<h1[^>]*>.*?</h1>)\s*<p>(.*?)</p>', tag_author, text, count=1)
-            
-            # If no chapter-author was tagged in this file, mark h1 as no-author
-            if 'class="chapter-author"' not in text:
-                text = re.sub(r'<h1(?!\s+class=)', r'<h1 class="no-author"', text, count=1)
-
             # Transform inline em captions: <p><img ... /> <em>caption</em></p> -> <figure><figcaption>
             text = re.sub(
                 r'<p><img\s+src="([^"]+)"\s+alt=""\s*/>\s*<em>(.*?)</em></p>',
@@ -196,27 +195,13 @@ tags:
                 text
             )
 
-            # Transform standalone figure captions following an image
-            author_bio_kws = ['1985年', '1983年', '1976年', '1984年', '1994年', '1987年', '1982年', '1973年', '1993年', '本名', '生于']
-            def tag_figcaption(m):
-                src = m.group(1)
-                cap = m.group(2).strip()
-                if any(kw in cap for kw in author_bio_kws) or len(cap) > 120 or cap.startswith(('<img', '<figure', '<h')):
-                    return m.group(0)
-                return f'<figure>\n<img src="{src}" alt="{cap}" />\n<figcaption>{cap}</figcaption>\n</figure>'
-
-            text = re.sub(
-                r'<p><img\s+src="([^"]+)"\s+alt=""\s*/>\s*</p>\s*<p>([^\n<]+(?:<em>[^\n<]+</em>[^\n<]*)*)</p>',
-                tag_figcaption,
-                text
-            )
-
-            # Tag dialogue paragraphs
-            text = re.sub(r'<p>(<strong>[^*<]+</strong>[：:])', tag_p, text)
-            # Split metadata lines (时代/地点) joined by <br /> so each line receives full paragraph indent
-            text = re.sub(r'<br\s*/?>\s*(<strong>(?:地点|时代|登场人物)</strong>[：:])', r'</p>\n<p class="play-meta">\1', text)
-            # Tag stage direction paragraphs (single-line emphasis paragraphs)
-            text = re.sub(r'<p>\s*(<em>.*?</em>)\s*</p>', r'<p class="stage-direction">\1</p>', text)
+            if is_drama:
+                # Tag dialogue paragraphs
+                text = re.sub(r'<p>(<strong>[^*<]+</strong>[：:])', tag_p, text)
+                # Split metadata lines (时代/地点) joined by <br /> so each line receives full paragraph indent
+                text = re.sub(r'<br\s*/?>\s*(<strong>(?:地点|时代|登场人物)</strong>[：:])', r'</p>\n<p class="play-meta">\1', text)
+                # Tag stage direction paragraphs (single-line emphasis paragraphs)
+                text = re.sub(r'<p>\s*(<em>.*?</em>)\s*</p>', r'<p class="stage-direction">\1</p>', text)
             
             # Ensure popover class on <aside epub:type="footnote">
             text = re.sub(r'<aside\s+([^>]*epub:type="footnote"[^>]*)>', r'<aside \1 class="footnote-popup">', text)
@@ -288,6 +273,8 @@ def main():
     parser.add_argument("--publisher", default=None, help="Publisher name")
     parser.add_argument("--css", default=None, help="Custom CSS file path")
     parser.add_argument("--front-matter", default=None, help="Front matter markdown file")
+    parser.add_argument("--tags", default=None, help="Comma-separated Obsidian tags (default: 书籍,电子书)")
+    parser.add_argument("--drama", action="store_true", help="Apply drama dialogue and stage direction formatting")
     args = parser.parse_args()
 
     build_epub_and_master(
@@ -300,7 +287,9 @@ def main():
         translator=args.translator,
         publisher=args.publisher,
         css_path=args.css,
-        front_matter_md=args.front_matter
+        front_matter_md=args.front_matter,
+        tags=args.tags,
+        is_drama=args.drama
     )
 
 if __name__ == "__main__":

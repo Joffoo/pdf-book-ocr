@@ -79,7 +79,7 @@ p.chapter-author {
   }
 }
 
-p.chapter-author::after, h1.no-author::after {
+p.chapter-author::after {
   content: "";
   display: block;
   width: 40px;
@@ -89,7 +89,7 @@ p.chapter-author::after, h1.no-author::after {
 }
 
 @media (prefers-color-scheme: dark) {
-  p.chapter-author::after, h1.no-author::after {
+  p.chapter-author::after {
     background-color: #4a5568;
   }
 }

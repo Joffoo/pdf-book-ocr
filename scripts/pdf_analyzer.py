@@ -18,13 +18,13 @@ import fitz  # PyMuPDF
 
 sys.stdout.reconfigure(encoding='utf-8')
 
-def analyze_pdf(pdf_path, out_dir=None, chunk_size=15, cover_target=None):
+def analyze_pdf(pdf_path, out_dir=None, chunk_size=15, cover_target=None, book_title=None):
     if not os.path.exists(pdf_path):
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
         
     doc = fitz.open(pdf_path)
     total_pages = len(doc)
-    book_name = os.path.splitext(os.path.basename(pdf_path))[0]
+    book_name = book_title or os.path.splitext(os.path.basename(pdf_path))[0]
     
     if out_dir is None:
         out_dir = os.path.join(os.path.dirname(pdf_path), f"{book_name}_work")
@@ -48,17 +48,28 @@ def analyze_pdf(pdf_path, out_dir=None, chunk_size=15, cover_target=None):
     is_digital = text_ratio > 0.7
     print(f"[*] Text layer sample ratio: {text_ratio:.1%} -> {'DIGITAL (Text-layer detected)' if is_digital else 'SCANNED (Image-based)'}")
     
-    # 2. Extract cover image from page 0
+    # 2. Extract cover image (fallback to page 1 if page 0 is completely blank)
     if cover_target is None:
         cover_target = os.path.join(out_dir, f"{book_name}_Cover.png")
         
-    page0 = doc[0]
-    # Render at 300 DPI for high quality cover
+    cover_pno = 0
+    if total_pages > 1:
+        try:
+            p0 = doc[0]
+            p0_pix = p0.get_pixmap(matrix=fitz.Matrix(0.2, 0.2), alpha=False)
+            import numpy as np
+            samples = np.frombuffer(p0_pix.samples, dtype=np.uint8)
+            if np.mean(samples) > 252:
+                cover_pno = 1
+        except Exception:
+            pass
+
+    page_cover = doc[cover_pno]
     zoom = 300 / 72
     mat = fitz.Matrix(zoom, zoom)
-    pix = page0.get_pixmap(matrix=mat, alpha=False)
+    pix = page_cover.get_pixmap(matrix=mat, alpha=False)
     pix.save(cover_target)
-    print(f"[OK] Cover extracted: {cover_target} ({pix.width}x{pix.height})")
+    print(f"[OK] Cover extracted from page {cover_pno+1}: {cover_target} ({pix.width}x{pix.height})")
     
     # 3. Extract TOC/Bookmarks if available
     toc = doc.get_toc()

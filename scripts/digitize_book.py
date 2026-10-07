@@ -23,7 +23,15 @@ import shutil
 import argparse
 import subprocess
 
-sys.stdout.reconfigure(encoding='utf-8')
+if sys.platform == 'win32':
+    if hasattr(sys.stdin, 'reconfigure'):
+        sys.stdin.reconfigure(encoding='utf-8')
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
+    if hasattr(sys.stderr, 'reconfigure'):
+        sys.stderr.reconfigure(encoding='utf-8')
+else:
+    sys.stdout.reconfigure(encoding='utf-8')
 
 # 颜色控制（支持 Windows 终端）
 class Color:
@@ -72,13 +80,13 @@ def check_environment():
         log("缺少 BeautifulSoup4 库，安装命令: pip install beautifulsoup4", 'err')
         all_ok = False
 
-    # 4. Pandoc 可执行文件
-    pandoc_path = shutil.which('pandoc')
-    if not pandoc_path:
-        for c in [r'E:\Pandoc\pandoc.exe', r'C:\Program Files\Pandoc\pandoc.exe']:
-            if os.path.exists(c):
-                pandoc_path = c
-                break
+    # 4. Pandoc 可执行文件 (SSOT 跨平台自适应检测)
+    try:
+        from epub_builder import find_pandoc
+        pandoc_path = find_pandoc()
+    except Exception:
+        pandoc_path = None
+
     if pandoc_path:
         log(f"编译器 (Pandoc): {pandoc_path}", 'ok')
     else:
@@ -94,8 +102,12 @@ def check_environment():
         log("运行环境存在缺失，请按提示安装后重试。\n", 'warn')
     return all_ok
 
+NON_AUTHOR_PATTERNS = re.compile(
+    r'(?:第[0-9一二三四五六七八九十]+[版卷期册部]|修订版|精装版|纪念版|全[0-9一二三四五六七八九十]+[册卷部]|完结版|珍藏版|插图版|影印版|译本|重译本|\d{4})'
+)
+
 def clean_book_filename(filename):
-    """智能清洗书名与作者"""
+    """智能清洗书名与作者，具备非作者后缀与版本噪音保护"""
     base = os.path.splitext(os.path.basename(filename))[0]
     # 剔除常见的电子书网站噪音（限定格式后缀与网盘标记，保护书名正文中的方括号）
     cleaned = re.sub(r'\(z-library[^\)]*\)', '', base, flags=re.I)
@@ -107,8 +119,15 @@ def clean_book_filename(filename):
     # 尝试提取书名与作者：例如 "百年孤独 (加西亚·马尔克斯)"
     m = re.match(r'^(.*?)\s*[\(（](.*?)[\)）]$', cleaned)
     if m:
-        title = m.group(1).strip()
-        author = m.group(2).strip()
+        candidate_title = m.group(1).strip()
+        candidate_author = m.group(2).strip()
+        # 排除版本、卷号、年份等非作者噪音
+        if NON_AUTHOR_PATTERNS.search(candidate_author) or candidate_author.isdigit() or len(candidate_author) > 15:
+            title = cleaned
+            author = "佚名"
+        else:
+            title = candidate_title
+            author = candidate_author
     else:
         title = cleaned
         author = "佚名"
@@ -218,7 +237,9 @@ def extract_digital_page_with_images(doc, pno, images_dir, min_size=80, global_p
             if w < min_size or h < min_size:
                 continue
             ratio = max(w / max(1, h), h / max(1, w))
-            if ratio > 15:
+            min_dim = min(w, h)
+            # 仅丢弃极端长宽比且高度/宽度极小的装饰线条；保护全景展开长图与时间轴
+            if ratio > 15 and min_dim < 20:
                 continue
                 
             img_fname = f"fig_p{eff_pno+1:03d}_{img_counter:02d}.png"
@@ -297,7 +318,7 @@ def plan_book(doc, pdf_path, title, author, cover_path, out_dir, chunk_size, is_
     log(f"启动统一切片与任务规划（{'数字文字版' if is_digital else '图像扫描版'}）...", 'step')
 
     # 1. 生成规划与物理切分
-    plan = analyze_pdf(pdf_path, out_dir=out_dir, chunk_size=chunk_size, cover_target=cover_path)
+    plan = analyze_pdf(pdf_path, out_dir=out_dir, chunk_size=chunk_size, cover_target=cover_path, book_title=title)
     parts_dir = slice_pdf(os.path.join(out_dir, "slice_plan.json"), out_dir=os.path.join(out_dir, "parts"))
 
     images_dir = os.path.join(out_dir, "images")
@@ -307,17 +328,6 @@ def plan_book(doc, pdf_path, title, author, cover_path, out_dir, chunk_size, is_
 
     # 2. 生成子智能体一键派发清单 (jobs.json)
     jobs = []
-    vector_figs_by_pno = {}
-    if is_digital:
-        try:
-            from vector_figure_extractor import extract_tight_vector_figures
-            vector_figs = extract_tight_vector_figures(pdf_path, images_dir)
-            if vector_figs:
-                log(f"已自动提取 {len(vector_figs)} 个矢量信息图/图表至 images/（300 DPI 紧致锁边）", 'ok')
-                for fnum, finfo in vector_figs.items():
-                    vector_figs_by_pno.setdefault(finfo['pno'], []).append(finfo)
-        except Exception as e:
-            log(f"矢量图表自动提取提示: {e}", 'warn')
 
     for p in plan['parts']:
         pdf_file_path = os.path.join(parts_dir, p['pdf_file'])
@@ -333,14 +343,6 @@ def plan_book(doc, pdf_path, title, author, cover_path, out_dir, chunk_size, is_
             for p_idx in range(len(slice_doc)):
                 global_pno = p['start_page'] + p_idx
                 page_text = extract_digital_page_with_images(slice_doc, p_idx, images_dir, global_pno=global_pno)
-
-                # 若当前页包含自动提取的紧致矢量图表，追加标准图片引用
-                if global_pno in vector_figs_by_pno:
-                    for vf in vector_figs_by_pno[global_pno]:
-                        fig_tag = f"\n\n![{vf['title']}]({vf['image_rel_path']})\n\n"
-                        if vf['image_rel_path'] not in page_text:
-                            page_text += fig_tag
-
                 slice_pages_text.append(f"<!-- === Page {p_idx+1} (Global Page {global_pno+1}) === -->\n\n" + page_text)
             slice_doc.close()
 
@@ -523,16 +525,15 @@ def assemble_scanned_book(work_dir, title=None, author=None, drama=False, previe
                 preamble_text = "".join(preamble_lines).strip()
                 substantive_text = re.sub(r'#+.*|\s+|[-*_=~`]', '', preamble_text)
                 if len(substantive_text) > 40:
-                    # 优先检测是否有显式的一级标题声明（如 # 题记 / # 序言）
+                    # 优先检测是否有显式的一级标题声明（如 # 题记 / # 序言 / # 献词）
                     preamble_title = None
                     for pl in preamble_lines:
                         if pl.startswith('# ') and not pl.startswith('## '):
                             preamble_title = pl[2:].strip()
                             break
                     if not preamble_title:
-                        # 智能识别体裁：字数较短（<1500字符）或包含诗歌分行硬换行，规范命名为“题记”，否则命名为“序言”
-                        is_epigraph = len(substantive_text) < 1500 or '\\\n' in preamble_text or '<br' in preamble_text
-                        preamble_title = '题记' if is_epigraph else '序言'
+                        # 遵循 SSOT 原则：若前置页未显式标注标题，中立命名为“前言”，交由 TOC 审查门禁确认
+                        preamble_title = '前言'
                     chapters_raw.insert(0, (preamble_title, preamble_lines))
             else:
                 # 保存上一章
@@ -554,30 +555,36 @@ def assemble_scanned_book(work_dir, title=None, author=None, drama=False, previe
         # 全文没有任何 ## 标题，作为单章处理
         chapters_raw.append((book_title, preamble_lines))
 
-    # 过滤文前文后的纯版权与推广章节
-    filtered_chapters = []
-    copyright_keywords = ('版权信息', '版权声明', '版权页', '出版信息', '图书在版编目', '出版说明')
-    for t, lines in chapters_raw:
-        clean_t = t.strip()
-        if any(kw in clean_t for kw in copyright_keywords):
-            log(f"  [跳过版权信息章节]: {clean_t}", 'ok')
-            continue
-        filtered_chapters.append((t, lines))
-    chapters_raw = filtered_chapters
-
-    log(f"识别到 {len(chapters_raw)} 个有效逻辑章节（已自动过滤版权信息）", 'ok')
+    # 章节目录树清册与审查门禁 (TOC Manifest & Review Gate)
+    # 坚守“零静默删除”原则：代码不对任何章节执行一票否决；
+    # 疑似版权页/推广页交由审查门禁透明预警，由父 Agent 或用户确认裁决。
+    log(f"识别到 {len(chapters_raw)} 个有效逻辑章节", 'ok')
     toc_manifest = []
+    copyright_keywords = ('版权信息', '版权声明', '版权页', '出版信息', '图书在版编目', '出版说明', 'cip数据')
+    total_ch_count = len(chapters_raw)
+
     for idx, (t, lines) in enumerate(chapters_raw, start=1):
+        clean_t = t.strip()
         char_count = sum(len(l) for l in lines)
         is_short = char_count < 1500
-        is_single_word = bool(re.match(r'^[A-Za-z0-9_\-–—]+$', t.strip()))
-        warn_flag = " [⚠️ 疑似微小节/短章]" if (is_short and is_single_word) else ""
-        log(f"  [{idx:02d}] {t[:40]} ({char_count:,} 字符){warn_flag}", 'step')
+        is_single_word = bool(re.match(r'^[A-Za-z0-9_\-–—]+$', clean_t))
+        
+        is_edge = (idx <= 2) or (idx >= total_ch_count - 1)
+        is_copyright_title = any(clean_t == kw or (len(clean_t) <= 10 and kw in clean_t) for kw in copyright_keywords)
+        
+        warn_flags = []
+        if is_short and is_single_word:
+            warn_flags.append("疑似微小节/短章")
+        if is_edge and is_copyright_title:
+            warn_flags.append("疑似版权/编目页")
+
+        warn_str = f" [⚠️ {', '.join(warn_flags)}]" if warn_flags else ""
+        log(f"  [{idx:02d}] {clean_t[:40]} ({char_count:,} 字符){warn_str}", 'step')
         toc_manifest.append({
             "index": idx,
-            "title": t,
+            "title": clean_t,
             "char_count": char_count,
-            "warning": bool(warn_flag)
+            "warnings": warn_flags
         })
 
     toc_manifest_path = os.path.join(work_dir, "toc_manifest.json")
@@ -628,7 +635,8 @@ def assemble_scanned_book(work_dir, title=None, author=None, drama=False, previe
         cover_image=cover_path,
         out_epub=out_epub,
         out_master_md=out_master_md,
-        resource_path=work_dir
+        resource_path=work_dir,
+        is_drama=drama
     )
     
     log("=" * 55, 'step')

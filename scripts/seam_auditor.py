@@ -27,18 +27,17 @@ CLOSING_BRACKETS = '”’）】》」』'
 BLOCK_PREFIXES = ('#', '!', '<', '>', '-', '*', '——', '—', '--', '1.', '2.', '3.', '4.', '5.', '6.', '7.', '8.', '9.')
 
 def is_line_terminated(line):
-    """判断行末是否为真正的句子终结标点"""
+    """判断行末是否为真正的句子终结标点（支持剥离多层嵌套闭合符号堆栈）"""
     if not line:
         return False
-    last = line[-1]
-    if last in TRUE_TERMINAL_PUNCT:
-        return True
-    if last in CLOSING_BRACKETS:
-        # 如果末尾是闭合括号/引号，检查闭合符之前是否有真终结符（如：“……。”）
-        if len(line) >= 2 and line[-2] in TRUE_TERMINAL_PUNCT:
-            return True
+    s = line.rstrip()
+    if not s:
         return False
-    return False
+    # 剥离末尾所有连续出现的闭合符号（双引号、单引号、中英文括号、书名号等）
+    trimmed = re.sub(r'[”’）】》」』\)]+$', '', s)
+    if not trimmed:
+        return False
+    return trimmed[-1] in TRUE_TERMINAL_PUNCT
 
 def extract_edge_lines(md_path, max_lines=5):
     """提取 Markdown 切片的首尾非空、非注释正文行"""

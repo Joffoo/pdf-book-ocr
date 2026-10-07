@@ -41,7 +41,7 @@ description: Convert PDF books (scanned or digital) to EPUB 3 and Obsidian Markd
 1. 运行 `python .agent/skills/pdf-book-ocr/scripts/digitize_book.py --doctor`，确认依赖正常。
 2. 运行 `python .agent/skills/pdf-book-ocr/scripts/digitize_book.py "<PDF路径>"`。
    - 脚本自动提取封面、配图并生成 10~15 页物理切片，建立 `subagent_jobs.json`。
-   - **数字文字版**：自动扫描图题并提取矢量信息图（300 DPI 紧致锁边、严防吞字）至 `images/`，并提供带配图标记的 `parts/*.raw.txt` 供纯文本低 Token 清洗；
+   - **数字文字版**：自动提取高质插图并生成 `parts/*.raw.txt` 纯文本草稿，供纯文本低 Token 快速清洗；
    - **扫描版**：自动提供纯微型 PDF 供视觉多模态转写。
 3. **全局目录提取（Global TOC Whitelist）**：切片完成后，主 Agent 使用 `view_file` 审阅第 1~2 个切片（通常含目录、卷首说明或编者按），提炼出本书的《全书大章白名单》（例如 `['伸伸脚', '十封信', '幸运的错误', ...]`）。若全书无显式目录（如纯长篇连续小说），记录“无显式目录，依大章通则转写”。
 - **Gate 1 验收门禁**：检查 `subagent_jobs.json` 已生成（条目数 > 0），且已提炼出《全书大章白名单》（或确认无显式目录）。
@@ -72,7 +72,7 @@ description: Convert PDF books (scanned or digital) to EPUB 3 and Obsidian Markd
   - **紧致裁切（Tight Subject Envelope）**：bbox 紧致贴合图像主体外轮廓，杜绝盲目外扩留白（留白由阅读器样式控制，严禁打包进图像资产）；
   - **图题正向语法（Caption Syntax）**：
     - 有图题：`![图题文字](images/part_{part_index}_fig_{fig_index}.png)`（文字严格封闭在方括号内，Pandoc 原生编译为 `<figure><figcaption>`）；
-    - 无图题：`![](images/part_{part_index}_fig_{fig_index}.png)`（方括号留空）；
+    - 无图题：`![](images/part_{part_index}_fig_{fig_index}.png)`（方括号留空；篇首肖像强制留空，下方姓名与生平文字作为流式正文）；
     - 严禁在图片下方另起段落书写裸文字或斜体图题（防止被解析为普通 `<p>` 段落并继承 2em 首行缩进）。
 - **非线性图表切图**：饼图、柱状图、走势图或横向多列表格统一按插图或 bbox 处理，避免移动端排版坍塌。
 - **随文注忠实保留**：正文中的括号随文注/夹注直接保留在正文中，不转为脚注。
@@ -95,7 +95,7 @@ description: Convert PDF books (scanned or digital) to EPUB 3 and Obsidian Markd
   1. 确认生成 `seam_report.md`（无断句缝隙）、`toc_manifest.json` 与 `assembled_chapters/`（章节名 100% 对应原书大章，无碎片微短章）、全书主 Markdown 笔记与 `.epub` 文件；
   2. **数学公式审计**：校验 EPUB 3 内部公式已 100% 转译为语义化 MathML 标签且无残留裸 `$$` 源码；
   3. **阅读器断行保真度审计**：校验题记、序诗等成组分行段落未被合并坍塌，必须存在 `<br />` 换行标签；
-  4. **篇章署名审计 (Chapter Author Sanity Audit)**：针对多作者文集，校验各章是否存在有效的 `<p class="chapter-author">`，杜绝非故意的 `<h1 class="no-author">` 假性孤立线。
+  4. **篇章署名审计 (Chapter Author Sanity Audit)**：针对多作者文集，校验各章是否存在规范的 `<p class="chapter-author">`。
 
 ### Gate 3.8: 主 Agent 全页图文终审门禁 (Mandatory Multimodal Layout & Visual Audit Gate)
 在向用户交付前，主 Agent **必须**调用多模态视神经（`view_file`）对生成的插图资产与图文排版效果执行闭环终审。**严禁用纯像素宽高、长宽比等数字指标做伪验收**，必须基于视觉语义逐一过目所有篇首肖像、图表与图文衔接：

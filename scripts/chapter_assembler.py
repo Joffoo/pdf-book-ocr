@@ -208,7 +208,7 @@ def normalize_text_layout(text, is_drama=False):
     text = re.sub(r'([\u4e00-\u9fa5]),([\u4e00-\u9fa5\s])', r'\1，\2', text)
     text = re.sub(r'([\u4e00-\u9fa5]);([\u4e00-\u9fa5\s])', r'\1；\2', text)
     text = re.sub(r'([\u4e00-\u9fa5]):([\u4e00-\u9fa5])', r'\1：\2', text)
-    text = re.sub(r'([\u4e00-\u9fa5])\(([\d\u4e00-\u9fa5]+)\)', r'\1（\2）', text)
+    text = re.sub(r'([\u4e00-\u9fa5])\(([\d\u4e00-\u9fa5]+)\)(?!\])', r'\1（\2）', text)
 
     # Normalize spacing around images: ensure blank lines before and after image blocks
     text = re.sub(r'([^\n])\n(!\[[^\]]*\]\([^)]+\))', r'\1\n\n\2', text)
@@ -216,6 +216,31 @@ def normalize_text_layout(text, is_drama=False):
 
     text = re.sub(r'\n{3,}', '\n\n', text).strip()
     return text
+
+def smart_join_lines(lines):
+    """
+    Language-aware line merger:
+    If boundary between lines consists of non-CJK (e.g. Latin/ASCII text), insert a space
+    (unless trailing hyphen).
+    If either side is CJK, merge seamlessly without space.
+    """
+    if not lines:
+        return ""
+    result = lines[0]
+    for nxt in lines[1:]:
+        if not result:
+            result = nxt
+            continue
+        if not nxt:
+            continue
+        is_cjk_prev = bool(re.search(r'[\u4e00-\u9fa5\u3000-\u303f\uff01-\uff5e]$', result))
+        is_cjk_next = bool(re.search(r'^[\u4e00-\u9fa5\u3000-\u303f\uff01-\uff5e]', nxt))
+        if not is_cjk_prev and not is_cjk_next:
+            sep = "" if result.endswith('-') else " "
+        else:
+            sep = ""
+        result = result + sep + nxt
+    return result
 
 def preserve_poetic_line_breaks(text, chapter_title=""):
     """
@@ -263,7 +288,7 @@ def preserve_poetic_line_breaks(text, chapter_title=""):
         else:
             # Normal prose: strip accidental trailing backslashes inside paragraphs and merge into natural flowing prose
             clean_lines = [re.sub(r'\\+$', '', l).strip() for l in lines]
-            merged = "".join(clean_lines)
+            merged = smart_join_lines(clean_lines)
             processed_blocks.append(merged)
 
     return '\n\n'.join(processed_blocks)
