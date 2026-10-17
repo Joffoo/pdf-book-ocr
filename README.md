@@ -3,6 +3,16 @@
 > 基于多模态 AI 与本地脚本的长篇 PDF 图书数字化与 EPUB 3 排版工具。  
 > Convert PDF books into EPUB 3 e-books and Obsidian Markdown notes.
 
+<div align="center">
+<img src="docs/preview-vertical.webp" alt="竖排扫描书 → 横排 EPUB 3" width="720">
+<br>
+<sub><b>竖排繁体扫描书 → 横排 EPUB 3</b>：章节标题、作者卡与段落结构自动重排 · <i>Vertical-text scan → horizontal EPUB 3</i></sub>
+<br><br>
+<img src="docs/preview-photo-essay.webp" alt="插图版式识别与 300 DPI 裁切" width="720">
+<br>
+<sub><b>插图版式识别</b>：300 DPI 底图裁切，图文区域互斥 · <i>Figure-aware layout with 300-DPI crops</i></sub>
+</div>
+
 <p align="center">
   <a href="#简体中文">简体中文</a> •
   <a href="#english">English</a> •
